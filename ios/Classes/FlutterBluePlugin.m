@@ -1,9 +1,6 @@
-// Copyright 2017, Paul DeMarco.
-// All rights reserved. Use of this source code is governed by a
-// BSD-style license that can be found in the LICENSE file.
-
 #import "FlutterBluePlugin.h"
 #import "Flutterblue.pbobjc.h"
+#import <flutter_blue/flutter_blue-Swift.h>
 
 @interface CBUUID (CBUUIDAdditionsFlutterBlue)
 - (NSString *)fullUUIDString;
@@ -42,6 +39,7 @@ typedef NS_ENUM(NSUInteger, LogLevel) {
 
 @implementation FlutterBluePlugin
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
+  [FlutterBluePluginSwift registerWithRegistrar:registrar];
   FlutterMethodChannel* channel = [FlutterMethodChannel
                                    methodChannelWithName:NAMESPACE @"/methods"
                                    binaryMessenger:[registrar messenger]];
@@ -53,17 +51,35 @@ typedef NS_ENUM(NSUInteger, LogLevel) {
   instance.servicesThatNeedDiscovered = [NSMutableArray new];
   instance.characteristicsThatNeedDiscovered = [NSMutableArray new];
   instance.logLevel = emergency;
-  
+
   // STATE
   FlutterBlueStreamHandler* stateStreamHandler = [[FlutterBlueStreamHandler alloc] init];
   [stateChannel setStreamHandler:stateStreamHandler];
   instance.stateStreamHandler = stateStreamHandler;
-  
+
   [registrar addMethodCallDelegate:instance channel:channel];
 }
 
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
-  if ([@"setLogLevel" isEqualToString:call.method]) {
+    if ([@"getPlatformVersion" isEqualToString:call.method]) {
+          result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
+        }
+      else if([@"updateFirmware" isEqualToString:call.method]) {
+            NSDictionary *dictionary = [call arguments];
+            NSString *remoteId = [dictionary objectForKey:@"deviceId"];
+            NSData *firmware = [dictionary objectForKey:@"firmware"];
+            @try {
+                CBPeripheral *peripheral = [self findPeripheral:remoteId];
+                FirmwareUpgradeManagerWrapper* wrapper = [[FirmwareUpgradeManagerWrapper alloc] initWithPeripheral:peripheral firmware:nil];
+                [wrapper setCompletionHandler:result];
+                [wrapper configure];
+                [wrapper startUpdate];
+                result(@"Starting to upload..");
+            } @catch(FlutterError *e) {
+                result(e);
+            }
+        }
+  else if ([@"setLogLevel" isEqualToString:call.method]) {
     NSNumber *logLevelIndex = [call arguments];
     _logLevel = (LogLevel)[logLevelIndex integerValue];
     result(nil);
@@ -375,11 +391,11 @@ typedef NS_ENUM(NSUInteger, LogLevel) {
   NSLog(@"didConnectPeripheral");
   // Register self as delegate for peripheral
   peripheral.delegate = self;
-  
+
   // Send initial mtu size
   uint32_t mtu = [self getMtu:peripheral];
   [_channel invokeMethod:@"MtuSize" arguments:[self toFlutterData:[self toMtuSizeResponseProto:peripheral mtu:mtu]]];
-  
+
   // Send connection state
   [_channel invokeMethod:@"DeviceState" arguments:[self toFlutterData:[self toDeviceStateProto:peripheral state:peripheral.state]]];
 }
@@ -388,7 +404,7 @@ typedef NS_ENUM(NSUInteger, LogLevel) {
   NSLog(@"didDisconnectPeripheral");
   // Unregister self as delegate for peripheral, not working #42
   peripheral.delegate = nil;
-  
+
   // Send connection state
   [_channel invokeMethod:@"DeviceState" arguments:[self toFlutterData:[self toDeviceStateProto:peripheral state:peripheral.state]]];
 }
@@ -405,7 +421,7 @@ typedef NS_ENUM(NSUInteger, LogLevel) {
   // Send negotiated mtu size
   uint32_t mtu = [self getMtu:peripheral];
   [_channel invokeMethod:@"MtuSize" arguments:[self toFlutterData:[self toMtuSizeResponseProto:peripheral mtu:mtu]]];
-  
+
   // Loop through and discover characteristics and secondary services
   [_servicesThatNeedDiscovered addObjectsFromArray:peripheral.services];
   for(CBService *s in [peripheral services]) {
@@ -451,7 +467,7 @@ typedef NS_ENUM(NSUInteger, LogLevel) {
   [result setRemoteId:[peripheral.identifier UUIDString]];
   [result setCharacteristic:[self toCharacteristicProto:peripheral characteristic:characteristic]];
   [_channel invokeMethod:@"ReadCharacteristicResponse" arguments:[self toFlutterData:result]];
-  
+
   // on iOS, this method also handles notification values
   ProtosOnCharacteristicChanged *onChangedResult = [[ProtosOnCharacteristicChanged alloc] init];
   [onChangedResult setRemoteId:[peripheral.identifier UUIDString]];
@@ -484,7 +500,7 @@ typedef NS_ENUM(NSUInteger, LogLevel) {
     [_channel invokeMethod:@"SetNotificationResponse" arguments:[self toFlutterData:response]];
     return;
   }
-  
+
   // Request a read
   [peripheral readValueForDescriptor:cccd];
 }
@@ -659,21 +675,21 @@ typedef NS_ENUM(NSUInteger, LogLevel) {
   [result setRemoteId:[peripheral.identifier UUIDString]];
   [result setUuid:[service.UUID fullUUIDString]];
   [result setIsPrimary:[service isPrimary]];
-  
+
   // Characteristic Array
   NSMutableArray *characteristicProtos = [NSMutableArray new];
   for(CBCharacteristic *c in [service characteristics]) {
     [characteristicProtos addObject:[self toCharacteristicProto:peripheral characteristic:c]];
   }
   [result setCharacteristicsArray:characteristicProtos];
-  
+
   // Included Services Array
   NSMutableArray *includedServicesProtos = [NSMutableArray new];
   for(CBService *s in [service includedServices]) {
     [includedServicesProtos addObject:[self toServiceProto:peripheral service:s]];
   }
   [result setIncludedServicesArray:includedServicesProtos];
-  
+
   return result;
 }
 
@@ -768,4 +784,5 @@ typedef NS_ENUM(NSUInteger, LogLevel) {
 }
 
 @end
+
 

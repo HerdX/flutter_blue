@@ -5,6 +5,7 @@
 part of flutter_blue;
 
 class FlutterBlue {
+  final MethodChannel _swiftChannel = const MethodChannel('$NAMESPACE/swift');
   final MethodChannel _channel = const MethodChannel('$NAMESPACE/methods');
   final EventChannel _stateChannel = const EventChannel('$NAMESPACE/state');
   final StreamController<MethodCall> _methodStreamController =
@@ -31,6 +32,17 @@ class FlutterBlue {
   /// Checks whether the device supports Bluetooth
   Future<bool> get isAvailable =>
       _channel.invokeMethod('isAvailable').then<bool>((d) => d);
+
+  // Test methods:
+  Future<String> get platformVersion async {
+    final String version = await _channel.invokeMethod('getPlatformVersion');
+    return version;
+  }
+
+  Future<String> get platformVersionSwift async {
+    final String version = await _swiftChannel.invokeMethod('getPlatformVersion');
+    return version;
+  }
 
   /// Checks if Bluetooth functionality is turned on
   Future<bool> get isOn => _channel.invokeMethod('isOn').then<bool>((d) => d);
